@@ -1,5 +1,5 @@
 import { BiCrown, BiSolidCrown } from 'react-icons/bi'
-import { useFrappeGetCall, useFrappeUpdateDoc } from 'frappe-react-sdk'
+import { useFrappeUpdateDoc } from 'frappe-react-sdk'
 import { toast } from 'sonner'
 import { getErrorMessage } from '@/components/layout/AlertBanner/ErrorBanner'
 import { Member } from '@/hooks/fetchers/useFetchChannelMembers'
@@ -14,16 +14,14 @@ export const UpdateAdminStatusButton = ({ user, channelID, updateMembers }: Upda
 
     const { updateDoc, loading: updatingMember, reset } = useFrappeUpdateDoc()
 
-    const { data: member } = useFrappeGetCall<{ message: { name: string } }>('frappe.client.get_value', {
-        doctype: "Raven Channel Member",
-        filters: JSON.stringify({ channel_id: channelID, user_id: user.name }),
-        fieldname: JSON.stringify(["name"])
-    }, undefined, {
-        revalidateOnFocus: false
-    })
-
+    // The channel member record name is already available on the member object
+    // (fetched via raven.api.chat.get_channel_members). The previous
+    // `frappe.client.get_value` lookup was permission-filtered to the current
+    // user's OWN membership (raven_channel_member_query), so for any other
+    // member it returned an empty name — causing the update to run against an
+    // empty document id and fail with "error while updating the document".
     const updateAdminStatus = async (admin: 1 | 0) => {
-        return updateDoc('Raven Channel Member', member?.message.name ?? '', {
+        return updateDoc('Raven Channel Member', user.channel_member_name ?? '', {
             is_admin: admin
         }).then(() => {
             toast.success('Member has been made an admin')
