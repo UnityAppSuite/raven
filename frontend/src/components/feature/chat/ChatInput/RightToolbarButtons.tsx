@@ -198,6 +198,8 @@ const FilePickerButton = ({ fileProps }: { fileProps: ToolbarFileProps }) => {
 }
 
 interface SendButtonProps extends IconButtonProps {
+    /** Hide the send-options chevron (mobile puts those actions in the "+" menu instead) */
+    showOptions?: boolean,
     sendMessage: RightToolbarButtonsProps['sendMessage'],
     messageSending: boolean,
     setContent: RightToolbarButtonsProps['setContent'],
@@ -205,9 +207,17 @@ interface SendButtonProps extends IconButtonProps {
 }
 
 
-export const SendButton = ({ sendMessage, messageSending, setContent, boxProps, ...props }: SendButtonProps) => {
+/**
+ * Sends whatever is currently in the editor.
+ *
+ * Extracted from SendButton so the mobile "+" menu can offer "Send without
+ * notification" using the exact same path — sendSilently is forwarded to
+ * raven.api.raven_message.send_message, which sets doc.flags.send_silently and
+ * makes the server skip the push notification.
+ */
+export const useSendFromEditor = ({ sendMessage, setContent }: Pick<SendButtonProps, 'sendMessage' | 'setContent'>) => {
     const { editor } = useCurrentEditor()
-    const onClick = (sendSilently: boolean = false) => {
+    return (sendSilently: boolean = false) => {
         if (editor) {
 
             const hasContent = editor.getText().trim().length > 0
@@ -249,9 +259,13 @@ export const SendButton = ({ sendMessage, messageSending, setContent, boxProps, 
                 })
         }
     }
+}
+
+export const SendButton = ({ sendMessage, messageSending, setContent, boxProps, showOptions = true, ...props }: SendButtonProps) => {
+    const onClick = useSendFromEditor({ sendMessage, setContent })
 
     return <HStack gap='2' align='center' {...boxProps} className={clsx('bg-accent-a2 py-1 px-1 rounded-radius2', boxProps?.className)}>
-        <DropdownMenu.Root>
+        {showOptions && <DropdownMenu.Root>
             <DropdownMenu.Trigger>
                 <IconButton
                     aria-label='send message'
@@ -270,7 +284,7 @@ export const SendButton = ({ sendMessage, messageSending, setContent, boxProps, 
                     Send without notification
                 </DropdownMenu.Item>
             </DropdownMenu.Content>
-        </DropdownMenu.Root>
+        </DropdownMenu.Root>}
         <IconButton
             aria-label='send message'
             title='Send message'
@@ -278,7 +292,7 @@ export const SendButton = ({ sendMessage, messageSending, setContent, boxProps, 
             variant='ghost'
             onClick={() => onClick()}
             {...props}
-            className={clsx('rounded-l-none', props?.className)}
+            className={clsx(showOptions && 'rounded-l-none', props?.className)}
         >
             {messageSending ? <Loader /> :
                 <BiSolidSend {...ICON_PROPS} />

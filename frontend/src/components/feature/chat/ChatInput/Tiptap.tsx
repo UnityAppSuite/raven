@@ -586,6 +586,9 @@ const Tiptap = forwardRef(({ isEdit, slotBefore, fileProps, onMessageSend, onUpA
                             <SendButton
                                 size='2'
                                 variant='soft'
+                                // The send options live in the "+" menu on mobile, so the
+                                // chevron beside the send button is redundant here.
+                                showOptions={false}
                                 boxProps={{
                                     className: 'rounded-r-radius2 rounded-l-none bg-transparent',
                                     gap: '0'
