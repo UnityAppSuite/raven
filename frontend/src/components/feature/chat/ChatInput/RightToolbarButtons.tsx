@@ -251,19 +251,6 @@ export const SendButton = ({ sendMessage, messageSending, setContent, boxProps, 
     }
 
     return <HStack gap='2' align='center' {...boxProps} className={clsx('bg-accent-a2 py-1 px-1 rounded-radius2', boxProps?.className)}>
-        <IconButton
-            aria-label='send message'
-            title='Send message'
-            size='1'
-            variant='ghost'
-            onClick={() => onClick()}
-            {...props}
-            className={clsx('rounded-r-none', props?.className)}
-        >
-            {messageSending ? <Loader /> :
-                <BiSolidSend {...ICON_PROPS} />
-            }
-        </IconButton>
         <DropdownMenu.Root>
             <DropdownMenu.Trigger>
                 <IconButton
@@ -272,7 +259,7 @@ export const SendButton = ({ sendMessage, messageSending, setContent, boxProps, 
                     variant='ghost'
                     size='1'
                     {...props}
-                    className={clsx('rounded-l-none', props?.className)}
+                    className={clsx('rounded-r-none', props?.className)}
                 >
                     <BiChevronDown {...ICON_PROPS} className='text-accent-a8' />
                 </IconButton>
@@ -284,6 +271,19 @@ export const SendButton = ({ sendMessage, messageSending, setContent, boxProps, 
                 </DropdownMenu.Item>
             </DropdownMenu.Content>
         </DropdownMenu.Root>
+        <IconButton
+            aria-label='send message'
+            title='Send message'
+            size='1'
+            variant='ghost'
+            onClick={() => onClick()}
+            {...props}
+            className={clsx('rounded-l-none', props?.className)}
+        >
+            {messageSending ? <Loader /> :
+                <BiSolidSend {...ICON_PROPS} />
+            }
+        </IconButton>
 
     </HStack>
 }
