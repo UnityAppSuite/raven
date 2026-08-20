@@ -1,17 +1,22 @@
 import { DropdownMenu, Flex, IconButton } from '@radix-ui/themes'
 import { BiPlus } from 'react-icons/bi'
-import { RightToolbarButtonsProps } from '../RightToolbarButtons'
+import { RightToolbarButtonsProps, useSendFromEditor } from '../RightToolbarButtons'
 import { MdOutlineBarChart } from 'react-icons/md'
 import { HiOutlineGif } from 'react-icons/hi2'
+import { BiBellOff } from 'react-icons/bi'
 import AttachFile from './AttachFile'
 import { useBoolean } from '@/hooks/useBoolean'
 import CreatePollDrawer from './CreatePollDrawer'
 import AddGIFDrawer from './AddGIFDrawer'
 
-const MobileInputActions = ({ fileProps, channelID }: RightToolbarButtonsProps) => {
+const MobileInputActions = ({ fileProps, channelID, sendMessage, setContent }: RightToolbarButtonsProps) => {
 
     const [isPollOpen, { on: onPollOpen }, setIsPollOpen] = useBoolean()
     const [isGIFPickerOpen, { on: onGIFPickerOpen }, setIsGIFPickerOpen] = useBoolean()
+
+    // Same code path as the desktop send-options chevron: sendSilently=true makes
+    // the server skip the recipient's push notification.
+    const sendFromEditor = useSendFromEditor({ sendMessage, setContent })
     return (
         <>
             <DropdownMenu.Root>
@@ -32,6 +37,12 @@ const MobileInputActions = ({ fileProps, channelID }: RightToolbarButtonsProps) 
                         <Flex gap='2' className='items-center'>
                             <HiOutlineGif />
                             GIF
+                        </Flex>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item onClick={() => sendFromEditor(true)} className='text-base !h-10'>
+                        <Flex gap='2' className='items-center'>
+                            <BiBellOff />
+                            Send without notification
                         </Flex>
                     </DropdownMenu.Item>
                 </DropdownMenu.Content>
