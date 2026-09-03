@@ -152,6 +152,17 @@ export const TiptapRenderer = ({ message, user, isScrolling = false, showMiniIma
         HTMLAttributes: {
           class: 'mention',
         },
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            /** Which trigger the mention was typed with - '@' notifies the channel, '#' links to it */
+            char: {
+              default: '#',
+              parseHTML: (element: HTMLElement) => element.getAttribute('data-mention-char') || '#',
+              renderHTML: (attributes: Record<string, any>) => ({ 'data-mention-char': attributes.char ?? '#' }),
+            },
+          }
+        },
         addNodeView() {
           return ReactNodeViewRenderer(ChannelMentionRenderer)
         }

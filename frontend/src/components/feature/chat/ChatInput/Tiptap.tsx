@@ -12,7 +12,7 @@ import { UserFields, UserListContext } from '@/utils/users/UserListProvider'
 import MentionList from './MentionList'
 import tippy from 'tippy.js'
 import { PluginKey } from '@tiptap/pm/state'
-import { ChannelListContext, ChannelListContextType } from '@/utils/channel/ChannelListProvider'
+import { ChannelListContext, ChannelListContextType, ChannelListItem } from '@/utils/channel/ChannelListProvider'
 import ChannelMentionList from './ChannelMentionList'
 import { ToolPanel } from './ToolPanel'
 import { RightToolbarButtons, SendButton } from './RightToolbarButtons'
@@ -90,6 +90,21 @@ export const UserMention = Mention.extend({
 
 export const ChannelMention = Mention.extend({
     name: 'channelMention',
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            /**
+             * The character this mention was typed with. A channel can be mentioned from
+             * '#' (link to the channel) or from '@' (notify everyone in it), and we render
+             * back whichever the user actually typed instead of always showing '#'.
+             */
+            char: {
+                default: '#',
+                parseHTML: (element: HTMLElement) => element.getAttribute('data-mention-char') || '#',
+                renderHTML: (attributes: Record<string, any>) => ({ 'data-mention-char': attributes.char ?? '#' }),
+            },
+        }
+    },
 })
     .configure({
         suggestion: {
@@ -106,8 +121,15 @@ export const ChannelMention = Mention.extend({
     })
 
 export interface MemberSuggestions extends UserFields {
-    is_member: boolean
+    mention_type: 'user'
 }
+
+export interface ChannelSuggestion extends ChannelListItem {
+    mention_type: 'channel'
+}
+
+/** '@' offers both the people in this channel and the channels you can mention */
+export type MentionSuggestion = MemberSuggestions | ChannelSuggestion
 
 const Tiptap = forwardRef(({ isEdit, slotBefore, fileProps, onMessageSend, onUpArrow, channelMembers, onUserType, channelID, replyMessage, clearReplyMessage, placeholder = 'Type a message...', messageSending, sessionStorageKey = 'tiptap-editor', disableSessionStorage = false, defaultText = '' }: TiptapEditorProps, ref) => {
 
@@ -116,23 +138,34 @@ const Tiptap = forwardRef(({ isEdit, slotBefore, fileProps, onMessageSend, onUpA
     const channelMembersRef = useRef<MemberSuggestions[]>([])
 
     useEffect(() => {
-        if (channelMembers) {
-            // Sort the user list so that members are at the top
-            channelMembersRef.current = enabledUsers.map((user) => ({
-                ...user,
-                is_member: user.name in channelMembers
-            })).sort((a, b) => a.is_member ? -1 : 1)
-        } else {
-            channelMembersRef.current = enabledUsers.map((user) => ({
-                ...user,
-                is_member: true
-            }))
-        }
+        // Only people who are actually in this channel can be mentioned here - mentioning
+        // someone who cannot read the channel just sends a notification they can't act on.
+        // While the member list is still loading we fall back to every enabled user so the
+        // '@' menu is never empty.
+        const memberIDs = channelMembers ? Object.keys(channelMembers) : []
+
+        const users = memberIDs.length
+            ? enabledUsers.filter((user) => user.name in channelMembers!)
+            : enabledUsers
+
+        channelMembersRef.current = users.map((user) => ({
+            ...user,
+            mention_type: 'user' as const
+        }))
     }, [channelMembers, enabledUsers])
 
     const { channels } = useContext(ChannelListContext) as ChannelListContextType
 
     const { workspaceID } = useParams()
+
+    /** Channels that can be mentioned - excludes archived channels and other workspaces */
+    const mentionableChannelsRef = useRef<ChannelSuggestion[]>([])
+
+    useEffect(() => {
+        mentionableChannelsRef.current = channels
+            .filter((channel) => !channel.is_archived && channel.workspace === workspaceID)
+            .map((channel) => ({ ...channel, mention_type: 'channel' as const }))
+    }, [channels, workspaceID])
 
     const isMobile = useIsMobile()
 
@@ -379,11 +412,47 @@ const Tiptap = forwardRef(({ isEdit, slotBefore, fileProps, onMessageSend, onUpA
                 return `${options.suggestion.char}${node.attrs.label ?? node.attrs.id}`
             },
             suggestion: {
-                items: (query) => {
-                    return channelMembersRef.current.filter((user) => user.full_name.toLowerCase().startsWith(query.query.toLowerCase()))
-                        .slice(0, 10);
+                items: ({ query }) => {
+                    const search = query.toLowerCase()
+
+                    // People first, then channels - typing '@' offers both, and picking a
+                    // channel notifies everyone in it.
+                    const users = channelMembersRef.current
+                        .filter((user) => user.full_name.toLowerCase().startsWith(search))
+                        .slice(0, 10)
+
+                    const mentionedChannels = mentionableChannelsRef.current
+                        .filter((channel) => channel.channel_name.toLowerCase().startsWith(search))
+                        .slice(0, 5)
+
+                    return [...users, ...mentionedChannels] as MentionSuggestion[]
                 },
                 // char: '@',
+                command: ({ editor, range, props }) => {
+                    // A channel picked from the '@' menu has to be inserted as a
+                    // channelMention node - that is what the server reads to resolve the
+                    // channel to its members.
+                    const { id, label, mention_type } = props as unknown as { id: string, label: string, mention_type?: 'user' | 'channel' }
+
+                    const isChannel = mention_type === 'channel'
+
+                    const attrs = isChannel
+                        ? { id, label, char: '@' }
+                        : { id, label }
+
+                    // Don't leave a double space behind if one already follows the mention
+                    const nodeAfter = editor.view.state.selection.$to.nodeAfter
+                    if (nodeAfter?.text?.startsWith(' ')) {
+                        range.to += 1
+                    }
+
+                    editor.chain().focus().insertContentAt(range, [
+                        { type: isChannel ? 'channelMention' : 'userMention', attrs },
+                        { type: 'text', text: ' ' },
+                    ]).run()
+
+                    window.getSelection()?.collapseToEnd()
+                },
                 render: () => {
                     let component: any;
                     let popup: any;
@@ -446,12 +515,13 @@ const Tiptap = forwardRef(({ isEdit, slotBefore, fileProps, onMessageSend, onUpA
                 class: 'mention',
             },
             renderHTML({ options, node }) {
-                return `${options.suggestion.char}${node.attrs.label ?? node.attrs.id}`
+                return `${node.attrs.char ?? options.suggestion.char}${node.attrs.label ?? node.attrs.id}`
             },
             suggestion: {
-                items: (query) => {
-                    return channels.filter((channel) => channel.workspace === workspaceID && channel.channel_name.toLowerCase().startsWith(query.query.toLowerCase()))
-                        .slice(0, 10);
+                items: ({ query }) => {
+                    return mentionableChannelsRef.current
+                        .filter((channel) => channel.channel_name.toLowerCase().startsWith(query.toLowerCase()))
+                        .slice(0, 10)
                 },
                 // char: '#',
                 render: () => {

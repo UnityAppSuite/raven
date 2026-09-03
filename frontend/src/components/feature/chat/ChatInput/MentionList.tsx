@@ -8,19 +8,24 @@ import {
     useRef,
     useState,
 } from 'react'
-import { MemberSuggestions } from './Tiptap'
+import { MemberSuggestions, MentionSuggestion } from './Tiptap'
 import { HStack } from '@/components/layout/Stack'
-import { BiUserX } from 'react-icons/bi'
+import { ChannelListItem } from '@/utils/channel/ChannelListProvider'
+import { ChannelIcon } from '@/utils/layout/channelIcon'
 
 export default forwardRef((props: ReactRendererOptions['props'], ref) => {
 
     const [selectedIndex, setSelectedIndex] = useState(0)
 
     const selectItem = (index: number) => {
-        const item = props?.items[index]
+        const item: MentionSuggestion | undefined = props?.items[index]
 
-        if (item) {
-            props.command({ id: item.name, label: item.full_name })
+        if (!item) return
+
+        if (item.mention_type === 'channel') {
+            props?.command({ id: item.name, label: item.channel_name, mention_type: 'channel' })
+        } else {
+            props?.command({ id: item.name, label: item.full_name, mention_type: 'user' })
         }
     }
 
@@ -67,15 +72,24 @@ export default forwardRef((props: ReactRendererOptions['props'], ref) => {
                 className='shadow-lg dark:bg-panel-solid bg-white overflow-y-scroll max-h-96 rounded-md'
             >
                 {props?.items.length
-                    ? props.items.map((item: MemberSuggestions, index: number) => (
-                        <MentionItem
-                            item={item}
-                            index={index}
-                            selectItem={selectItem}
-                            selectedIndex={selectedIndex}
-                            key={item.name}
-                            itemsLength={props.items.length}
-                        />
+                    ? props.items.map((item: MentionSuggestion, index: number) => (
+                        item.mention_type === 'channel'
+                            ? <ChannelMentionItem
+                                item={item}
+                                index={index}
+                                selectItem={selectItem}
+                                selectedIndex={selectedIndex}
+                                key={item.name}
+                                itemsLength={props.items.length}
+                            />
+                            : <MentionItem
+                                item={item}
+                                index={index}
+                                selectItem={selectItem}
+                                selectedIndex={selectedIndex}
+                                key={item.name}
+                                itemsLength={props.items.length}
+                            />
                     ))
                     : <div className="item">No result</div>
                 }
@@ -120,8 +134,40 @@ const MentionItem = ({ item, index, selectItem, selectedIndex, itemsLength }: { 
         />
         <HStack width='100%' justify='between' align='center' gap='2'>
             <Text as='span' weight='medium' size='2'> {item.full_name}</Text>
-            <Text as='span' color='gray'>{!item.is_member && <BiUserX title='This user is not a member of the channel' />}</Text>
         </HStack>
 
+    </Flex>
+}
+
+/** A channel offered under '@' - selecting it notifies everyone in that channel */
+const ChannelMentionItem = ({ item, index, selectItem, selectedIndex, itemsLength }: { itemsLength: number, selectedIndex: number, index: number, item: ChannelListItem, selectItem: (index: number) => void }) => {
+
+    const ref = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (index === selectedIndex) ref.current?.scrollIntoView({ block: 'nearest' })
+    }, [selectedIndex, index])
+
+    return <Flex
+        role='button'
+        ref={ref}
+        align='center'
+        title={item.channel_name}
+        aria-label={`Mention everyone in ${item.channel_name}`}
+        className={clsx('px-3 py-1.5 gap-2 rounded-md',
+            index === itemsLength - 1 ? 'rounded-b-md' : 'rounded-b-none',
+            index === 0 ? 'rounded-t-md' : 'rounded-t-none',
+            index === selectedIndex ? 'bg-accent-a5' : 'bg-panel-translucent'
+        )}
+        key={index}
+        onClick={() => selectItem(index)}
+    >
+        <Flex align='center' justify='center' className='w-6 h-6'>
+            <ChannelIcon type={item.type} size='16' />
+        </Flex>
+        <HStack width='100%' justify='between' align='center' gap='2'>
+            <Text as='span' weight='medium' size='2'>{item.channel_name}</Text>
+            <Text as='span' size='1' color='gray'>Notifies everyone</Text>
+        </HStack>
     </Flex>
 }
