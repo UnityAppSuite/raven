@@ -87,14 +87,21 @@ export const UserMentionRenderer = ({ node }: NodeViewRendererProps) => {
 
 export const ChannelMentionRenderer = ({ node }: NodeViewRendererProps) => {
 
+    const { workspaceID } = useParams()
+
+    // Channels are routed as /:workspaceID/:channelID
+    const to = workspaceID ? `/${workspaceID}/${node.attrs.id}` : `/${node.attrs.id}`
+
     return (
         <NodeViewWrapper as={'span'}>
             <Link asChild size={{
                 sm: '3',
                 md: '2'
             }}>
-                <RouterLink to={`/channel/${node.attrs.id}`}>
-                    #{node.attrs.label}
+                <RouterLink to={to}>
+                    {/* Rendered with whichever trigger was typed - '@' to notify the
+                        channel, '#' to just link to it */}
+                    {node.attrs.char ?? '#'}{node.attrs.label}
                 </RouterLink>
             </Link>
         </NodeViewWrapper>

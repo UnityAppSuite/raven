@@ -18,7 +18,9 @@ from raven.notification import (
 	truncate_notification_content,
 )
 from raven.utils import (
+	get_channel_members,
 	get_raven_room,
+	get_workspace_members,
 	is_channel_member,
 	refresh_thread_reply_count,
 	track_channel_visit,
@@ -124,18 +126,115 @@ class RavenMessage(Document):
 		for d in soup.find_all("span", attrs={"data-type": "userMention"}):
 			mention_id = d.get("data-id")
 			if mention_id and mention_id not in unique_mentions:
-				self.append("mentions", {"user": mention_id})
+				self.add_mention(mention_id, unique_mentions)
 
-				frappe.publish_realtime(
-					"raven_mention",
-					{
-						"channel_id": self.channel_id,
-						"user_id": mention_id,
-					},
-					user=mention_id,
-					after_commit=True,
+		self.extract_channel_mentions(soup, unique_mentions)
+
+	def add_mention(self, user_id: str, unique_mentions: set):
+		"""
+		Append a mention row and tell that user about it in realtime
+		"""
+		self.append("mentions", {"user": user_id})
+
+		frappe.publish_realtime(
+			"raven_mention",
+			{
+				"channel_id": self.channel_id,
+				"user_id": user_id,
+			},
+			user=user_id,
+			after_commit=True,
+		)
+		unique_mentions.add(user_id)
+
+	def extract_channel_mentions(self, soup, unique_mentions: set):
+		"""
+		Expand every channel mention (@channel-name) into a mention for each member of
+		that channel, so mentioning a channel notifies the whole group.
+
+		Recipients are limited to people who can already read the channel this message
+		was posted in - mentioning a channel must not push its members the contents of a
+		conversation they have no access to.
+		"""
+		channel_ids = []
+		for d in soup.find_all("span", attrs={"data-type": "channelMention"}):
+			channel_id = d.get("data-id")
+			if channel_id and channel_id not in channel_ids:
+				channel_ids.append(channel_id)
+
+		if not channel_ids:
+			return
+
+		audience = self.get_users_who_can_read_channel(self.channel_id)
+
+		for channel_id in channel_ids:
+			try:
+				for user_id in self.get_channel_mention_recipients(channel_id):
+					if user_id in unique_mentions:
+						continue
+					if user_id not in audience:
+						continue
+					self.add_mention(user_id, unique_mentions)
+			except Exception:
+				# A mention that cannot be resolved (deleted channel, stale paste) must
+				# never stop the message from being sent.
+				frappe.log_error(
+					title="Raven: could not expand channel mention",
+					message=frappe.get_traceback(),
 				)
-				unique_mentions.add(mention_id)
+
+	def get_channel_mention_recipients(self, channel_id: str) -> list[str]:
+		"""
+		Members of a mentioned channel who should be notified.
+		"""
+		if not frappe.db.exists("Raven Channel", channel_id):
+			return []
+
+		channel = frappe.get_cached_doc("Raven Channel", channel_id)
+
+		# Mentioning a DM is meaningless - there is no group to notify.
+		if channel.is_direct_message:
+			return []
+
+		# The sender must be able to see the channel they are mentioning, otherwise the
+		# mention could be used to probe the membership of channels they cannot access.
+		if not self.is_bot_message:
+			sender = self.owner or frappe.session.user
+			if not frappe.has_permission("Raven Channel", doc=channel_id, ptype="read", user=sender):
+				return []
+
+		recipients = []
+		for user_id, member in get_channel_members(channel_id).items():
+			if member.get("type") == "Bot":
+				continue
+			if user_id == self.owner:
+				continue
+			recipients.append(user_id)
+
+		return recipients
+
+	def get_users_who_can_read_channel(self, channel_id: str) -> set:
+		"""
+		Everyone who can read a channel, resolved from the cached member maps.
+
+		Mirrors the read branch of `channel_has_permission` without paying for a full
+		permission check per user: channel members always qualify, and Public/Open
+		channels are readable by the whole workspace.
+		"""
+		channel = frappe.get_cached_doc("Raven Channel", channel_id)
+
+		# A thread inherits its readers from the channel the thread was started in.
+		if channel.is_thread:
+			parent_channel = frappe.db.get_value("Raven Message", channel.name, "channel_id")
+			if parent_channel and frappe.db.exists("Raven Channel", parent_channel):
+				channel = frappe.get_cached_doc("Raven Channel", parent_channel)
+
+		users = set(get_channel_members(channel.name).keys())
+
+		if channel.type in ("Public", "Open") and channel.workspace:
+			users.update(get_workspace_members(channel.workspace).keys())
+
+		return users
 
 	def remove_empty_trailing_paragraphs(self, soup):
 		"""
